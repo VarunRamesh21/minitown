@@ -1,0 +1,990 @@
+<!DOCTYPE html>
+<head>
+<title>minitown</title>
+<style>
+  :root{
+    --sky-top:#cfe0e8;
+    --sky-bottom:#e9ddc8;
+    --ink:#2b2320;
+    --paper:#f6efe0;
+    --accent:#c1552f;
+    --accent-soft:#e0a458;
+    --path:#dcc9a3;
+    --grass-a:#7fa06b;
+    --grass-b:#749763;
+    --line:#3a2f28;
+  }
+  * {
+    box-sizing: border-box;
+  }
+  html,body{
+    margin:0;padding:0;height:100%;overflow:hidden;
+    background:var(--ink);
+    font-family: 'Courier New', ui-monospace, monospace;
+  }
+  #game-wrap{
+    position:relative;width:100vw;height:100vh;
+    display:flex;align-items:center;justify-content:center;
+  }
+  canvas{
+    display:block;
+    image-rendering:pixelated;
+    background:linear-gradient(var(--sky-top),var(--sky-bottom));
+    cursor:default;
+  }
+  #hud{
+    position:absolute; top:14px; left:14px;
+    color:var(--paper);
+    text-shadow:0 2px 0 rgba(0,0,0,.35);
+    pointer-events:none;
+    font-size:13px;
+    letter-spacing:.5px;
+  }
+  #hud .title{
+    font-size:20px;
+    font-weight:bold;
+    letter-spacing:2px;
+    color:var(--accent-soft);
+    margin-bottom:2px;
+  }
+  #hud .sub{ opacity:.85; }
+
+  #prompt{
+    position:absolute;
+    left:50%; bottom:64px; transform:translateX(-50%);
+    background:var(--paper);
+    color:var(--ink);
+    border:2px solid var(--line);
+    padding:8px 16px;
+    border-radius:3px;
+    font-size:13px;
+    font-weight:bold;
+    display:none;
+    box-shadow:0 4px 0 rgba(0,0,0,.25);
+    white-space:nowrap;
+  }
+
+  #dialog{
+    position:absolute; left:50%; bottom:36px; transform:translateX(-50%);
+    width:min(560px, 86vw);
+    background:var(--paper);
+    border:3px solid var(--line);
+    border-radius:4px;
+    padding:16px 20px;
+    box-shadow:0 6px 0 rgba(0,0,0,.3);
+    display:none;
+  }
+  #dialog .name{
+    color:var(--accent);
+    font-weight:bold;
+    font-size:14px;
+    margin-bottom:6px;
+    letter-spacing:.5px;
+  }
+  #dialog .msg{
+    color:var(--ink);
+    font-size:13px;
+    line-height:1.5;
+  }
+  #dialog .hint{
+    margin-top:8px;
+    font-size:11px;
+    color:#8a7f6d;
+  }
+
+  #minimap{
+    position:absolute; right:14px; top:14px;
+    width:150px; height:110px;
+    background:rgba(20,16,14,.55);
+    border:2px solid rgba(246,239,224,.5);
+    border-radius:4px;
+  }
+
+  #controls-note{
+    position:absolute; left:14px; bottom:14px;
+    color:var(--paper);
+    opacity:.75;
+    font-size:11px;
+    text-shadow:0 2px 0 rgba(0,0,0,.35);
+    pointer-events:none;
+  }
+
+  #intro{
+    position:absolute; inset:0;
+    background:rgba(20,16,14,.82);
+    display:flex; align-items:center; justify-content:center;
+    z-index:10;
+  }
+  #intro .card{
+    background:var(--paper);
+    border:3px solid var(--line);
+    border-radius:6px;
+    padding:28px 32px;
+    max-width:420px;
+    text-align:center;
+    box-shadow:0 8px 0 rgba(0,0,0,.3);
+  }
+  #intro h1{
+    margin:0 0 6px;
+    color:var(--accent);
+    font-size:24px;
+    letter-spacing:2px;
+  }
+  #intro p{
+    color:var(--ink);
+    font-size:13px;
+    line-height:1.6;
+    margin:10px 0;
+  }
+  #intro button{
+    margin-top:10px;
+    background:var(--accent);
+    color:var(--paper);
+    border:none;
+    padding:10px 22px;
+    font-family:inherit;
+    font-weight:bold;
+    font-size:13px;
+    letter-spacing:1px;
+    border-radius:3px;
+    cursor:pointer;
+    box-shadow:0 4px 0 #8a3c1f;
+  }
+  #intro button:active {
+    transform: translateY(3px);
+    box-shadow: none;
+  }
+  #intro kbd{
+    background:#e4d8bf; border:1px solid #b8a97f; border-radius:3px;
+    padding:1px 6px; font-family:inherit;
+  }
+</style>
+</head>
+<body>
+<div id="game-wrap">
+  <canvas id="game"></canvas>
+
+  <div id="hud">
+    <div class="title">minitown</div>
+    <div class="sub" id="houseCount">0 houses discovered</div>
+  </div>
+
+  <canvas id="minimap"></canvas>
+
+  <div id="prompt">Press E to knock</div>
+
+  <div id="dialog">
+    <div class="name" id="dialogName">—</div>
+    <div class="msg" id="dialogMsg">—</div>
+    <div class="hint">press E or click away to close</div>
+  </div>
+
+  <div id="controls-note">WASD / Arrows to move · E to interact</div>
+
+  <div id="intro">
+    <div class="card">
+      <h1>minitown</h1>
+      <p>A small little town for you to explore<br>
+      Walk west and the map shall expand. Look for Old Tom's Cottage because you can actually go inside.</p>
+      <p><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrow keys to walk. Press <kbd>E</kbd> near a door to knock or enter.</p>
+      <button id="startBtn">Step outside</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const canvas = document.getElementById('game');
+  const canTRX = canvas.getContext('2d');
+  const mini = document.getElementById('minimap');
+  const mcn = mini.getContext('2d');
+
+  function resize(){
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    mini.width = mini.clientWidth * devicePixelRatio;
+    mini.height = mini.clientHeight * devicePixelRatio;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  
+  let world = { minX:0, maxX:1100, minY:0, maxY:760 };
+  const CHUNK = 620;          
+  const EDGE_TRIGGER = 190;   
+  const TILE = 40;
+
+  const houseColors = [
+    {wall:'#d9b98a', roof:'#a4432c', trim:'#5c4327'},
+    {wall:'#c9c2a6', roof:'#6b6350', trim:'#3f3a2c'},
+    {wall:'#e3cba4', roof:'#8a5a3b', trim:'#4a3a24'},
+    {wall:'#cdd7c6', roof:'#5c7a52', trim:'#37402f'},
+    {wall:'#e6d3c3', roof:'#b06a3a', trim:'#553a24'},
+    {wall:'#d3c4d8', roof:'#6f5270', trim:'#3c2c40'},
+  ];
+
+  const nameBank = [
+    ['Waloon House', 'Og house'],
+    ['Baloon House', 'helium makes your voice high'],
+    ['Saloon House', 'lots of alcohol'],
+    ['Caloon House', 'I dont know what a caloon is'],
+    ['Maloon House', 'I dont know what a maloon is'],
+    ['Valoon House', 'I dont know what a valoon is'],
+    ['Naloon House', 'I dont know what a naloon is'],
+    ['Taloon House', 'I dont know what a taloon is'],
+    ['Faloon House', 'I dont know what a faloon is'],
+    
+  ];
+  let nameIndex = 0;
+  function nextNamedFlavor(){
+    const pick = nameBank[nameIndex % nameBank.length];
+    nameIndex++;
+    return pick;
+  }
+
+  let houses = [];
+  let discoveredCount = 0;
+
+  function rectsOverlap(a,b,pad){
+    return !(a.x+a.w+pad < b.x || b.x+b.w+pad < a.x || a.y+a.h+pad < b.y || b.y+b.h+pad < a.y);
+  }
+
+  function tryPlaceHouse(xMin,xMax,yMin,yMax){
+    const w = 90 + Math.random()*40;
+    const h = 70 + Math.random()*30;
+    for (let attempt = 0; attempt < 25; attempt++) {
+      const x = xMin + Math.random()*Math.max(1,(xMax-xMin-w));
+      const y = yMin + Math.random()*Math.max(1,(yMax-yMin-h));
+      const cand = {x,y,w,h};
+      let ok = true;
+      for(const h2 of houses){
+        if(rectsOverlap(cand, h2, 46)){ ok=false; break; }
+      }
+      if(ok) return cand;
+    }
+    return null;
+  }
+
+  function makeHouse(rect){
+    const c = houseColors[Math.floor(Math.random()*houseColors.length)];
+    const [name, message] = nextNamedFlavor();
+    const doorW = 20, doorH = 26;
+    return {
+      x: rect.x, y: rect.y, w: rect.w, h: rect.h,
+      wall: c.wall, roof: c.roof, trim: c.trim,
+      doorX: rect.x + rect.w/2 - doorW/2,
+      doorY: rect.y + rect.h - doorH,
+      doorW, doorH,
+      name, message,
+      discovered:false,
+      knockPulse:0,
+    };
+  }
+
+  function seedInitialTown(){
+    const count = 5;
+    for (let i = 0; i < count; i++) {
+      const rect = tryPlaceHouse(world.minX+80, world.maxX-80, world.minY+120, world.maxY-160);
+      if (rect) houses.push(makeHouse(rect));
+    }
+    
+    if (houses.length){
+      const home = houses[0];
+      home.enterable = true;
+      home.name = "Old Tom's Cottage";
+      home.message = "The door swings open easily. Come on in.";
+    }
+  }
+
+
+  function expandWorldLeft(){
+    world.minX -= CHUNK;
+  }
+
+  
+  const player = {
+    x: (world.minX+world.maxX)/2,
+    y: (world.minY+world.maxY)/2,
+    w: 18, h: 22,
+    speed: 175, 
+    facing: 'down',
+    walkT: 0,
+    moving: false,
+  };
+
+  
+  let mode = 'town'; 
+  let townReturn = null; 
+
+  const room = {
+    x: 0, y: 0, w: 340, h: 230,
+    exitW: 40, exitH: 16,
+  };
+  room.exitX = room.x + room.w/2 - room.exitW/2;
+  room.exitY = room.y + room.h - 6;
+
+  const CHANNEL_COLORS = ['#3d6ea5', '#c1552f', '#5c7a52', '#6f5270', '#e0a458', '#8fa9b0'];
+
+  const furniture = [
+    {kind:'bed', x: room.x+18, y: room.y+22, w: 60, h: 38},
+    {kind:'table', x: room.x+room.w/2-24, y: room.y+room.h/2-16, w: 48, h: 32},
+    {kind:'fireplace', x: room.x+room.w-46, y: room.y+18, w: 32, h: 28},
+    {kind:'shelf', x: room.x+room.w-52, y: room.y+room.h-70, w: 40, h: 16},
+    {kind:'rug', x: room.x+room.w/2-46, y: room.y+room.h/2+24, w: 92, h: 46, solid:false},
+    {kind:'tv', x: room.x+18, y: room.y+140, w: 46, h: 36, on:false, channel:0},
+  ];
+  const tv = furniture.find(f => f.kind === 'tv');
+
+  function enterHouse(house){
+    townReturn = house;
+    mode = 'interior';
+    player.x = room.exitX + room.exitW/2 - player.w/2;
+    player.y = room.exitY - player.h - 10;
+    player.facing = 'up';
+    closeDialog();
+  }
+
+  function exitHouse(){
+    mode = 'town';
+    if(townReturn){
+      player.x = townReturn.x + townReturn.w/2 - player.w/2;
+      player.y = townReturn.y + townReturn.h + 10;
+      player.facing = 'down';
+    }
+  }
+
+  const keys = {};
+  window.addEventListener('keydown', e=>{
+    keys[e.key.toLowerCase()] = true;
+    if(e.key.toLowerCase()==='e') tryInteract();
+    if(['arrowup','arrowdown','arrowleft','arrowright',' '].includes(e.key.toLowerCase())) e.preventDefault();
+  });
+  window.addEventListener('keyup', e=>{ keys[e.key.toLowerCase()] = false; });
+
+  
+  let particles = [];
+  function spawnDust(x,y){
+    particles.push({x,y, life:0.5, maxLife:0.5});
+  }
+
+  
+  const promptEl = document.getElementById('prompt');
+  const dialogEl = document.getElementById('dialog');
+  const dialogName = document.getElementById('dialogName');
+  const dialogMsg = document.getElementById('dialogMsg');
+  const houseCountEl = document.getElementById('houseCount');
+
+  let nearDoorHouse = null;
+  let nearExit = false;
+  let nearTV = false;
+  let dialogOpen = false;
+
+  function tryInteract(){
+    if (mode === 'interior'){
+      if(nearExit){ exitHouse(); return; }
+      if(nearTV){ toggleTV(); return; }
+      return;
+    }
+    if (dialogOpen){
+      closeDialog();
+      return;
+    }
+    if (nearDoorHouse){
+      if(nearDoorHouse.enterable){
+        enterHouse(nearDoorHouse);
+      } else {
+        openDialog(nearDoorHouse);
+      }
+    }
+  }
+
+  function toggleTV(){
+    if (!tv.on){
+      tv.on = true;
+    } else {
+      tv.channel = (tv.channel + 1) % CHANNEL_COLORS.length;
+    }
+  }
+
+  function openDialog(house){
+    dialogOpen = true;
+    house.knockPulse = 1;
+    if (!house.discovered){
+      house.discovered = true;
+      discoveredCount++;
+      houseCountEl.textContent = discoveredCount + (discoveredCount===1 ? ' house discovered' : ' houses discovered');
+    }
+    dialogName.textContent = house.name;
+    dialogMsg.textContent = house.message;
+    dialogEl.style.display = 'block';
+    promptEl.style.display = 'none';
+  }
+  function closeDialog(){
+    dialogOpen = false;
+    dialogEl.style.display = 'none';
+  }
+  document.addEventListener('click', (e)=>{
+    if(dialogOpen && !dialogEl.contains(e.target)) closeDialog();
+  });
+
+  
+  function houseSolidRect(house){
+    
+    return {x:house.x, y:house.y, w:house.w, h:house.h};
+  }
+
+  function collidesWithHouses(px,py,pw,ph, skipDoorPass){
+    for(const house of houses){
+      const doorRect = {x:house.doorX-4, y:house.doorY-2, w:house.doorW+8, h:house.doorH+6};
+      const bodyRect = houseSolidRect(house);
+      const overlapsBody = !(px+pw < bodyRect.x || bodyRect.x+bodyRect.w < px || py+ph < bodyRect.y || bodyRect.y+bodyRect.h < py);
+      if (!overlapsBody) continue;
+      
+      return true;
+    }
+    return false;
+  }
+
+  function collidesWithFurniture(px,py,pw,ph){
+    for(const f of furniture){
+      if(f.solid === false) continue;
+      const overlaps = !(px+pw < f.x || f.x+f.w < px || py+ph < f.y || f.y+f.h < py);
+      if (overlaps) return true;
+    }
+    return false;
+  }
+
+  
+  let lastTime = performance.now();
+  function update(dt){
+    let dx=0, dy=0;
+    if(keys['w']||keys['arrowup']) dy -= 1;
+    if(keys['s']||keys['arrowdown']) dy += 1;
+    if(keys['a']||keys['arrowleft']) dx -= 1;
+    if(keys['d']||keys['arrowright']) dx += 1;
+
+    player.moving = (dx!==0||dy!==0) && !dialogOpen;
+
+    if (dx !== 0 && dy !== 0){ dx*=0.7071; dy*=0.7071; }
+
+    if(dx>0) player.facing='right';
+    else if(dx<0) player.facing='left';
+    else if(dy>0) player.facing='down';
+    else if(dy<0) player.facing='up';
+
+    if (player.moving){
+      const moveX = dx*player.speed*dt;
+      const moveY = dy*player.speed*dt;
+
+      if (mode === 'town'){
+        
+        let nx = player.x + moveX;
+        if(!collidesWithHouses(nx, player.y, player.w, player.h)){
+          player.x = nx;
+        }
+        let ny = player.y + moveY;
+        if(!collidesWithHouses(player.x, ny, player.w, player.h)){
+          player.y = ny;
+        }
+        
+        player.x = Math.max(world.minX+6, Math.min(world.maxX-player.w-6, player.x));
+        player.y = Math.max(world.minY+6, Math.min(world.maxY-player.h-6, player.y));
+      } else {
+        
+        let nx = player.x + moveX;
+        if(!collidesWithFurniture(nx, player.y, player.w, player.h)){
+          player.x = nx;
+        }
+        let ny = player.y + moveY;
+        if(!collidesWithFurniture(player.x, ny, player.w, player.h)){
+          player.y = ny;
+        }
+        player.x = Math.max(room.x+8, Math.min(room.x+room.w-player.w-8, player.x));
+        player.y = Math.max(room.y+8, Math.min(room.y+room.h-player.h-8, player.y));
+      }
+
+      player.walkT += dt*10;
+      if(mode==='town' && Math.random()<0.15) spawnDust(player.x+player.w/2, player.y+player.h);
+    }
+
+    
+    for(const p of particles){ p.life -= dt; }
+    particles = particles.filter(p=>p.life>0);
+
+    
+    for(const h of houses) if(h.knockPulse>0) h.knockPulse = Math.max(0,h.knockPulse-dt*2);
+
+    if (mode === 'town'){
+      
+      if(player.x - world.minX < EDGE_TRIGGER) expandWorldLeft();
+
+      
+      nearDoorHouse = null;
+      let bestDist = 46;
+      const px = player.x+player.w/2, py = player.y+player.h;
+      for(const house of houses){
+        const dcx = house.doorX+house.doorW/2, dcy = house.doorY+house.doorH;
+        const d = Math.hypot(px-dcx, py-dcy);
+        if(d < bestDist){ bestDist = d; nearDoorHouse = house; }
+      }
+      if(!dialogOpen){
+        if (nearDoorHouse){
+          promptEl.textContent = nearDoorHouse.enterable ? 'Press E to enter' : 'Press E to knock';
+          promptEl.style.display = 'block';
+        } else {
+          promptEl.style.display = 'none';
+        }
+      }
+    } else {
+      
+      const px = player.x+player.w/2, py = player.y+player.h;
+      const ecx = room.exitX+room.exitW/2, ecy = room.exitY;
+      nearExit = Math.hypot(px-ecx, py-ecy) < 50;
+
+      const tcx = tv.x+tv.w/2, tcy = tv.y+tv.h/2;
+      nearTV = Math.hypot(px-tcx, py-tcy) < 42;
+
+      if(nearExit){
+        promptEl.textContent = 'Press E to exit';
+        promptEl.style.display = 'block';
+      } else if(nearTV){
+        promptEl.textContent = tv.on ? 'Press E to change the channel' : 'Press E to turn on the TV';
+        promptEl.style.display = 'block';
+      } else {
+        promptEl.style.display = 'none';
+      }
+    }
+  }
+
+  
+  function worldToScreen(camX,camY,x,y){ return {x:x-camX, y:y-camY}; }
+
+  function drawGround(camX,camY){
+    
+    const w = canvas.width, h = canvas.height;
+
+    
+    canTRX.fillStyle = '#82a56d';
+    canTRX.fillRect(0,0,w,h);
+
+    
+    const startX = Math.floor((world.minX)/TILE)*TILE;
+    const endX = world.maxX;
+    const startY = Math.floor((world.minY)/TILE)*TILE;
+    const endY = world.maxY;
+
+    for(let wx=startX; wx<endX; wx+=TILE){
+      for(let wy=startY; wy<endY; wy+=TILE){
+        const sx = wx-camX, sy = wy-camY;
+        if(sx+TILE<0||sy+TILE<0||sx>w||sy>h) continue;
+        const idx = Math.floor(wx/TILE) + Math.floor(wy/TILE);
+        canTRX.fillStyle = (idx%2===0) ? '#7fa06b' : '#769a63';
+        canTRX.fillRect(sx, sy, TILE, TILE);
+      }
+    }
+
+    
+    const bandDepth = 70;
+    canTRX.save();
+    canTRX.globalAlpha = 0.18;
+    canTRX.fillStyle = '#1c1712';
+    
+    let s = worldToScreen(camX,camY, world.minX, world.minY);
+    canTRX.fillRect(s.x, s.y, bandDepth, world.maxY-world.minY);
+    
+    s = worldToScreen(camX,camY, world.maxX-bandDepth, world.minY);
+    canTRX.fillRect(s.x, s.y, bandDepth, world.maxY-world.minY);
+    
+    s = worldToScreen(camX,camY, world.minX, world.minY);
+    canTRX.fillRect(s.x, s.y, world.maxX-world.minX, bandDepth);
+    
+    s = worldToScreen(camX,camY, world.minX, world.maxY-bandDepth);
+    canTRX.fillRect(s.x, s.y, world.maxX-world.minX, bandDepth);
+    canTRX.restore();
+
+    
+    canTRX.save();
+    canTRX.strokeStyle = 'rgba(220,201,163,0.55)';
+    canTRX.lineWidth = 16;
+    canTRX.lineCap = 'round';
+    const cx = (world.minX+world.maxX)/2, cy=(world.minY+world.maxY)/2;
+    for(const house of houses){
+      const dcx = house.doorX+house.doorW/2, dcy = house.doorY+house.doorH;
+      const a = worldToScreen(camX,camY,cx,cy);
+      const b = worldToScreen(camX,camY,dcx,dcy);
+      canTRX.beginPath();
+      canTRX.moveTo(a.x,a.y);
+      canTRX.lineTo(b.x,b.y);
+      canTRX.stroke();
+    }
+    canTRX.restore();
+  }
+
+  function drawHouse(camX,camY,house){
+    const s = worldToScreen(camX,camY,house.x,house.y);
+    if(s.x+house.w<-40||s.y+house.h<-60||s.x>canvas.width+40||s.y>canvas.height+40) return;
+
+    
+    canTRX.fillStyle = 'rgba(0,0,0,0.18)';
+    canTRX.fillRect(s.x+6, s.y+house.h-4, house.w-4, 10);
+
+    
+    canTRX.fillStyle = house.wall;
+    canTRX.fillRect(s.x, s.y+18, house.w, house.h-18);
+    canTRX.strokeStyle = house.trim;
+    canTRX.lineWidth = 2;
+    canTRX.strokeRect(s.x, s.y+18, house.w, house.h-18);
+
+    
+    canTRX.fillStyle = house.roof;
+    canTRX.beginPath();
+    canTRX.moveTo(s.x-8, s.y+22);
+    canTRX.lineTo(s.x+house.w/2, s.y-14);
+    canTRX.lineTo(s.x+house.w+8, s.y+22);
+    canTRX.closePath();
+    canTRX.fill();
+    canTRX.strokeStyle = house.trim;
+    canTRX.stroke();
+
+    
+    canTRX.fillStyle = house.discovered ? '#fce6a8' : '#8fa9b0';
+    const winW=14, winH=14;
+    canTRX.fillRect(s.x+house.w-winW-10, s.y+30, winW, winH);
+    canTRX.strokeStyle = house.trim;
+    canTRX.strokeRect(s.x+house.w-winW-10, s.y+30, winW, winH);
+
+    
+    const dsx = house.doorX-house.x+s.x, dsy = house.doorY-house.y+s.y;
+    const pulse = house.knockPulse;
+    canTRX.fillStyle = pulse>0 ? '#f0d9a0' : house.trim;
+    canTRX.fillRect(dsx, dsy, house.doorW, house.doorH);
+    canTRX.strokeStyle = '#241b12';
+    canTRX.lineWidth = 1.5;
+    canTRX.strokeRect(dsx, dsy, house.doorW, house.doorH);
+    
+    canTRX.fillStyle = '#e8c878';
+    canTRX.beginPath();
+    canTRX.arc(dsx+house.doorW-4, dsy+house.doorH/2, 1.6, 0, Math.PI*2);
+    canTRX.fill();
+
+    
+    if(house.discovered){
+      canTRX.font = '10px Courier New';
+      canTRX.fillStyle = 'rgba(20,16,14,0.75)';
+      canTRX.textAlign = 'center';
+      canTRX.fillText(house.name, s.x+house.w/2, s.y-20);
+    }
+  }
+
+  function drawPlayer(camX,camY){
+    const s = worldToScreen(camX,camY, player.x, player.y);
+    const cx = s.x+player.w/2;
+
+    
+    canTRX.fillStyle='rgba(0,0,0,0.25)';
+    canTRX.beginPath();
+    canTRX.ellipse(cx, s.y+player.h+2, 10, 4, 0,0,Math.PI*2);
+    canTRX.fill();
+
+    const bob = player.moving ? Math.sin(player.walkT)*2 : 0;
+    const legOffset = player.moving ? Math.sin(player.walkT)*3 : 0;
+
+    
+    canTRX.fillStyle = '#3b2f2a';
+    canTRX.fillRect(cx-6, s.y+player.h-6+bob*0, 4, 6+legOffset*0.4);
+    canTRX.fillRect(cx+2, s.y+player.h-6+bob*0, 4, 6-legOffset*0.4);
+
+    
+    canTRX.fillStyle = '#3d6ea5';
+    canTRX.fillRect(s.x, s.y+6+bob*0.3, player.w, player.h-10);
+
+    
+    canTRX.fillStyle = '#e8c39e';
+    canTRX.fillRect(s.x+2, s.y-6+bob*0.3, player.w-4, 12);
+
+    
+    canTRX.fillStyle = '#4a3324';
+    canTRX.fillRect(s.x+2, s.y-8+bob*0.3, player.w-4, 5);
+
+    
+    canTRX.fillStyle = '#241b12';
+    if(player.facing==='down'){
+      canTRX.fillRect(cx-3, s.y-1, 2,2);
+      canTRX.fillRect(cx+1, s.y-1, 2,2);
+    } else if(player.facing==='left'){
+      canTRX.fillRect(cx-6, s.y-1, 2,2);
+    } else if(player.facing==='right'){
+      canTRX.fillRect(cx+4, s.y-1, 2,2);
+    }
+    
+  }
+
+  function drawParticles(camX,camY){
+    for(const p of particles){
+      const s = worldToScreen(camX,camY,p.x,p.y);
+      const a = p.life/p.maxLife;
+      canTRX.fillStyle = `rgba(230,220,190,${a*0.5})`;
+      canTRX.beginPath();
+      canTRX.arc(s.x, s.y, 2+ (1-a)*3, 0, Math.PI*2);
+      canTRX.fill();
+    }
+  }
+
+  function drawFurniturePiece(camX,camY,f){
+    const s = worldToScreen(camX,camY,f.x,f.y);
+    switch(f.kind){
+      case 'bed': {
+        canTRX.fillStyle = '#8a5a3b';
+        canTRX.fillRect(s.x, s.y, f.w, f.h);
+        canTRX.fillStyle = '#e8ddc4';
+        canTRX.fillRect(s.x+4, s.y+4, f.w-8, f.h-14);
+        canTRX.fillStyle = '#c1552f';
+        canTRX.fillRect(s.x+4, s.y+f.h-14, f.w-8, 10);
+        canTRX.strokeStyle = '#4a3324'; canTRX.lineWidth=2;
+        canTRX.strokeRect(s.x, s.y, f.w, f.h);
+        break;
+      }
+      case 'table': {
+        canTRX.fillStyle = 'rgba(0,0,0,0.15)';
+        canTRX.fillRect(s.x+3, s.y+f.h-4, f.w-6, 6);
+        canTRX.fillStyle = '#a9784f';
+        canTRX.fillRect(s.x, s.y, f.w, f.h);
+        canTRX.strokeStyle = '#5c4327'; canTRX.lineWidth=2;
+        canTRX.strokeRect(s.x, s.y, f.w, f.h);
+        
+        canTRX.fillStyle = '#f6efe0';
+        canTRX.fillRect(s.x+f.w/2-4, s.y+f.h/2-4, 8, 8);
+        break;
+      }
+      case 'fireplace': {
+        canTRX.fillStyle = '#6b6350';
+        canTRX.fillRect(s.x, s.y, f.w, f.h);
+        canTRX.fillStyle = '#241b12';
+        canTRX.fillRect(s.x+6, s.y+8, f.w-12, f.h-10);
+        canTRX.fillStyle = '#e0a458';
+        canTRX.beginPath();
+        canTRX.moveTo(s.x+f.w/2, s.y+f.h-6);
+        canTRX.lineTo(s.x+f.w/2-6, s.y+f.h+4);
+        canTRX.lineTo(s.x+f.w/2+6, s.y+f.h+4);
+        canTRX.closePath();
+        canTRX.fill();
+        canTRX.fillStyle = '#c1552f';
+        canTRX.beginPath();
+        canTRX.arc(s.x+f.w/2, s.y+f.h-4, 4, 0, Math.PI*2);
+        canTRX.fill();
+        break;
+      }
+      case 'shelf': {
+        canTRX.fillStyle = '#7a5c3a';
+        canTRX.fillRect(s.x, s.y, f.w, f.h);
+        canTRX.strokeStyle = '#4a3324'; canTRX.lineWidth=1.5;
+        canTRX.strokeRect(s.x, s.y, f.w, f.h);
+        canTRX.fillStyle = '#c1552f';
+        canTRX.fillRect(s.x+4, s.y+3, 6, f.h-6);
+        canTRX.fillStyle = '#5c7a52';
+        canTRX.fillRect(s.x+14, s.y+3, 6, f.h-6);
+        canTRX.fillStyle = '#e0a458';
+        canTRX.fillRect(s.x+24, s.y+3, 6, f.h-6);
+        break;
+      }
+      case 'rug': {
+        canTRX.fillStyle = '#b5583a';
+        canTRX.fillRect(s.x, s.y, f.w, f.h);
+        canTRX.strokeStyle = '#7a3a24'; canTRX.lineWidth=3;
+        canTRX.strokeRect(s.x+4, s.y+4, f.w-8, f.h-8);
+        break;
+      }
+      case 'tv': {
+        const screenPad = 5;
+        const sx = s.x+screenPad, sy = s.y+screenPad, sw = f.w-screenPad*2, sh = f.h-screenPad*2-6;
+
+        
+        if(f.on){
+          const glowColor = CHANNEL_COLORS[f.channel];
+          const grad = canTRX.createRadialGradient(
+            s.x+f.w/2, s.y+f.h/2, 4,
+            s.x+f.w/2, s.y+f.h/2, f.w*1.6
+          );
+          grad.addColorStop(0, glowColor + 'aa');
+          grad.addColorStop(1, glowColor + '00');
+          canTRX.fillStyle = grad;
+          canTRX.fillRect(s.x-f.w, s.y-f.h, f.w*3, f.h*3);
+        }
+
+        
+        canTRX.fillStyle = '#2b2320';
+        canTRX.fillRect(s.x, s.y, f.w, f.h);
+        canTRX.strokeStyle = '#151009'; canTRX.lineWidth=2;
+        canTRX.strokeRect(s.x, s.y, f.w, f.h);
+
+        
+        canTRX.fillStyle = '#151009';
+        canTRX.fillRect(s.x+4, s.y+f.h, 4, 5);
+        canTRX.fillRect(s.x+f.w-8, s.y+f.h, 4, 5);
+
+        
+        canTRX.strokeStyle = '#8a7f6d'; canTRX.lineWidth=1.5;
+        canTRX.beginPath();
+        canTRX.moveTo(s.x+f.w/2, s.y);
+        canTRX.lineTo(s.x+f.w/2-8, s.y-12);
+        canTRX.moveTo(s.x+f.w/2, s.y);
+        canTRX.lineTo(s.x+f.w/2+8, s.y-12);
+        canTRX.stroke();
+
+        
+        if(f.on){
+          canTRX.fillStyle = CHANNEL_COLORS[f.channel];
+          canTRX.fillRect(sx, sy, sw, sh);
+          
+          canTRX.strokeStyle = 'rgba(0,0,0,0.18)';
+          canTRX.lineWidth = 1;
+          for(let ly=sy+2; ly<sy+sh; ly+=3){
+            canTRX.beginPath(); canTRX.moveTo(sx, ly); canTRX.lineTo(sx+sw, ly); canTRX.stroke();
+          }
+          
+          canTRX.fillStyle = 'rgba(255,255,255,0.12)';
+          canTRX.fillRect(sx, sy, sw, sh*0.35);
+        } else {
+          canTRX.fillStyle = '#0c0906';
+          canTRX.fillRect(sx, sy, sw, sh);
+          canTRX.fillStyle = 'rgba(255,255,255,0.06)';
+          canTRX.fillRect(sx, sy, sw, sh*0.3);
+        }
+        canTRX.strokeStyle = '#151009'; canTRX.lineWidth=1.5;
+        canTRX.strokeRect(sx, sy, sw, sh);
+
+        
+        canTRX.fillStyle = f.on ? '#7fd67f' : '#5a4c3d';
+        canTRX.beginPath();
+        canTRX.arc(s.x+f.w-6, s.y+f.h-4, 1.6, 0, Math.PI*2);
+        canTRX.fill();
+        break;
+      }
+    }
+  }
+
+  function drawInterior(camX,camY){
+    const w=canvas.width, h=canvas.height;
+    canTRX.fillStyle = '#241b12';
+    canTRX.fillRect(0,0,w,h);
+
+    const s = worldToScreen(camX,camY, room.x, room.y);
+
+    
+    canTRX.fillStyle = '#c9a876';
+    canTRX.fillRect(s.x, s.y, room.w, room.h);
+    
+    canTRX.strokeStyle = 'rgba(90,60,30,0.25)';
+    canTRX.lineWidth = 1;
+    for(let i=1;i<10;i++){
+      const lx = s.x + (room.w/10)*i;
+      canTRX.beginPath(); canTRX.moveTo(lx, s.y); canTRX.lineTo(lx, s.y+room.h); canTRX.stroke();
+    }
+
+    
+    canTRX.fillStyle = '#7a5c40';
+    canTRX.fillRect(s.x-14, s.y-14, room.w+28, 14); 
+    canTRX.fillRect(s.x-14, s.y-14, 14, room.h+28); 
+    canTRX.fillRect(s.x+room.w, s.y-14, 14, room.h+28); 
+
+    
+    canTRX.fillStyle = '#9fc3d6';
+    canTRX.fillRect(s.x+room.w-70, s.y-10, 30, 18);
+    canTRX.strokeStyle = '#4a3324'; canTRX.lineWidth=2;
+    canTRX.strokeRect(s.x+room.w-70, s.y-10, 30, 18);
+
+    
+    const es = worldToScreen(camX,camY, room.exitX, room.exitY-6);
+    canTRX.fillStyle = nearExit ? '#f0d9a0' : '#3a2f28';
+    canTRX.fillRect(es.x, es.y, room.exitW, 10);
+    canTRX.strokeStyle = '#1a130d'; canTRX.lineWidth=2;
+    canTRX.strokeRect(es.x, es.y, room.exitW, 10);
+
+    
+    const drawables = furniture.map(f=>({type:'furn', y:f.y+f.h, f}));
+    drawables.push({type:'player', y:player.y+player.h});
+    drawables.sort((a,b)=>a.y-b.y);
+    for(const d of drawables){
+      if(d.type==='furn') drawFurniturePiece(camX,camY,d.f);
+      else drawPlayer(camX,camY);
+    }
+  }
+
+  function drawMinimap(){
+    const w = mini.width, h = mini.height;
+    mcn.clearRect(0,0,w,h);
+    const worldW = world.maxX-world.minX, worldH = world.maxY-world.minY;
+    const pad = 8*devicePixelRatio;
+    const scale = Math.min((w-pad*2)/worldW, (h-pad*2)/worldH);
+    const offX = pad + (w-pad*2-worldW*scale)/2;
+    const offY = pad + (h-pad*2-worldH*scale)/2;
+
+    function mx(x){ return offX + (x-world.minX)*scale; }
+    function my(y){ return offY + (y-world.minY)*scale; }
+
+    for(const house of houses){
+      mcn.fillStyle = house.discovered ? '#e8c878' : 'rgba(230,220,190,0.55)';
+      mcn.fillRect(mx(house.x), my(house.y), Math.max(2,house.w*scale), Math.max(2,house.h*scale));
+    }
+    mcn.fillStyle = '#c1552f';
+    mcn.beginPath();
+    mcn.arc(mx(player.x+player.w/2), my(player.y+player.h/2), 3*devicePixelRatio, 0, Math.PI*2);
+    mcn.fill();
+  }
+
+  function render(){
+    const w=canvas.width, h=canvas.height;
+    canTRX.clearRect(0,0,w,h);
+
+    if (mode === 'interior'){
+      const camX = room.x - (w-room.w)/2;
+      const camY = room.y - (h-room.h)/2;
+      drawInterior(camX,camY);
+      mini.style.display = 'none';
+      return;
+    }
+    mini.style.display = 'block';
+
+    let camX = player.x + player.w/2 - w/2;
+    let camY = player.y + player.h/2 - h/2;
+    const worldW = world.maxX-world.minX, worldH = world.maxY-world.minY;
+    camX = Math.max(world.minX, Math.min(world.minX+Math.max(0,worldW-w), camX));
+    camY = Math.max(world.minY, Math.min(world.minY+Math.max(0,worldH-h), camY));
+
+    drawGround(camX,camY);
+
+    
+    const drawables = houses.map(h=>({type:'house', y:h.y+h.h, house:h}));
+    drawables.push({type:'player', y:player.y+player.h});
+    drawables.sort((a,b)=>a.y-b.y);
+    for(const d of drawables){
+      if(d.type==='house') drawHouse(camX,camY,d.house);
+      else drawPlayer(camX,camY);
+    }
+    drawParticles(camX,camY);
+    drawMinimap();
+  }
+
+  function loop(now){
+    const dt = Math.min(0.05, (now-lastTime)/1000);
+    lastTime = now;
+    if(gameStarted){
+      update(dt);
+      render();
+    }
+    requestAnimationFrame(loop);
+  }
+
+  
+  let gameStarted = false;
+  document.getElementById('startBtn').addEventListener('click', ()=>{
+    document.getElementById('intro').style.display='none';
+    gameStarted = true;
+  });
+
+  seedInitialTown();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
